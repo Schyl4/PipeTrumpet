@@ -1,0 +1,18 @@
+{
+    "Lua.diagnostics.globals": [
+        "ObjectManager",
+        "Interest",
+        "Constraint",
+        "Core",
+        "SessionItem",
+        "Node",
+        "Log",
+        "Feature",
+        "Link",
+        "Lib",
+        "Pod"
+    ],
+    "Lua.diagnostics.disable": [
+        "lowercase-global"
+    ]
+}
