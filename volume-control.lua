@@ -9,11 +9,10 @@ app_om = ObjectManager {
     }
 }
 
-function createAppSink(app_name, stream_id, stream)
-    local unique_name = "app-sink-" .. app_name:gsub("[^%w]", "-") .. "-" .. stream_id
+function createAppSink(app_name)
+    local unique_name = "App-Sink-" .. app_name:gsub("[^%w]", "-")
     local description = "Volume Control for " .. app_name
     
-    -- First create the actual Node
     local node = Node("adapter", {
         ["factory.name"] = "support.null-audio-sink",
         ["node.name"] = unique_name,
@@ -26,17 +25,16 @@ function createAppSink(app_name, stream_id, stream)
     
     if not node then
         Log:warning("Failed to create node for " .. app_name)
-        return nil, nil
+        return
     end
     
-    -- Then wrap it with si-node SessionItem
     local si_node = SessionItem("si-node")
 
-    if not si_node:configure {
-        ["item.node"] = node,  -- Pass the actual Node object
-    } then
-        Log.warning(si_node, "failed to configure si-node")
-        return nil, nil
+    if not si_node:configure({
+        ["item.node"] = node,
+    }) then
+        Log:warning("Failed to configure si-node for " .. app_name)
+        return
     end
 
     si_node:register()
@@ -46,69 +44,48 @@ function createAppSink(app_name, stream_id, stream)
         si_node = si_node,
         app_name = app_name,
         node_name = unique_name,
-        stream = stream
+        connection_count = 1,
     }
-    app_nodes[stream_id] = node_info
 
-    node:activate(Feature.SessionItem.ACTIVE)
-    
-    return si_node, unique_name
+    app_nodes[app_name] = node_info
+
+    si_node:activate(Feature.SessionItem.ACTIVE)
 end
 
-app_om:connect("object-added", function(om, stream)
-    local properties = stream.properties
+app_om:connect("object-added", function(om, node)
+    local properties = node.properties
     local app_name = properties["application.name"]
-    local stream_id = stream.id
+    local stream_id = node.id
     
     Log:warning("New audio stream detected: " .. tostring(app_name) .. " (ID: " .. stream_id .. ")")
     
-    if app_name then
-        local app_sink, node_name = createAppSink(app_name, stream_id, stream)
+    if not app_nodes[app_name] then
+        createAppSink(app_name)
     else
-        Log:warning("Stream " .. stream_id .. " has no application.name property")
+        Log:warning("Volume control sink already exists")
+        app_nodes[app_name].connection_count = app_nodes[app_name].connection_count + 1
+        Log:warning("Connection count for " .. app_name .. " : " .. app_nodes[app_name].connection_count)
     end
 end)
 
-app_om:connect("object-removed", function(om, stream)
-    local stream_id = stream.id
-    local app_info = app_nodes[stream_id]
-    
-    if app_info then
-        Log:warning("Test: " .. app_info.app_name .. " (ID: " .. stream_id .. ")")
-        Log:warning("Stream disconnected: " .. app_info.app_name .. " (ID: " .. stream_id .. ")")
-        
-        -- Clean up input link (stream -> app sink)
-        if app_info.input_link then
-            Log:warning("Removing input link for " .. app_info.node_name)
-            app_info.input_link:request_destroy()
-            app_info.input_link = nil
+app_om:connect("object-removed", function(om, node)
+    local app_name = node.properties["application.name"]
+    local node_info = app_nodes[app_name]
+
+    app_nodes[app_name].connection_count = app_nodes[app_name].connection_count - 1
+    Log:warning("Connection count for " .. app_name .. " : " .. app_nodes[app_name].connection_count)
+
+    if node_info.connection_count <= 0 then
+        if node_info.si_node then
+            Log:warning("Destroying SessionItem: " .. node_info.node_name)
+            node_info.si_node:deactivate(Feature.SessionItem.ACTIVE)
+            app_nodes[node.id] = nil
         end
-        
-        -- Clean up output link (app sink -> default)
-        if app_info.output_link then
-            Log:warning("Removing output link for " .. app_info.node_name)
-            app_info.output_link:request_destroy()
-            app_info.output_link = nil
+
+        if node_info.node then
+            Log:warning("Destroying node: " .. node_info.node_name)
+            node_info.node:request_destroy()
         end
-        
-        -- Destroy the associated virtual sink
-        if app_info.si_node then
-            Log:warning("Destroying SessionItem: " .. app_info.node_name)
-            app_info.si_node:deactivate(Feature.SessionItem.ACTIVE)
-            app_info.si_node = nil
-        end
-        
-        -- Destroy the node
-        if app_info.node then
-            Log:warning("Destroying node: " .. app_info.node_name)
-            app_info.node:request_destroy()
-            app_info.node = nil
-        end
-        
-        -- Remove from tracking
-        app_nodes[stream_id] = nil
-    else
-        Log:debug("Untracked stream disconnected: " .. stream_id)
     end
 end)
 

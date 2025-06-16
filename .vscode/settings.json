@@ -11,7 +11,8 @@
         "Link",
         "Lib",
         "Pod",
-        "Debug"
+        "Debug",
+        "Features"
     ],
     "Lua.diagnostics.disable": [
         "lowercase-global"
