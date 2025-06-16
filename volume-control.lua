@@ -1,4 +1,3 @@
-
 -- for tracking
 local app_nodes = {}
 local default_node_id = 0
@@ -14,6 +13,7 @@ function createAppSink(app_name, stream_id, stream)
     local unique_name = "app-sink-" .. app_name:gsub("[^%w]", "-") .. "-" .. stream_id
     local description = "Volume Control for " .. app_name
     
+    -- First create the actual Node
     local node = Node("adapter", {
         ["factory.name"] = "support.null-audio-sink",
         ["node.name"] = unique_name,
@@ -24,30 +24,35 @@ function createAppSink(app_name, stream_id, stream)
         ["node.virtual"] = true,
     })
     
-    if node then
-        local node_info = {
-            node = node,
-            app_name = app_name,
-            node_name = unique_name,
-            stream = stream
-        }
-        app_nodes[stream_id] = node_info
-        
-        node:activate(Feature.Proxy.BOUND, function(n, error)
-            if error then
-                Log:warning("Failed to activate sink for " .. app_name .. ": " .. tostring(error))
-                -- Clean up on failure
-                app_nodes[stream_id] = nil
-            else
-                Log:info("Created virtual sink for " .. app_name .. ": " .. unique_name)
-                
-            end
-        end)
-        return node, unique_name
-    else
-        Log:warning("Failed to create sink for " .. app_name)
+    if not node then
+        Log:warning("Failed to create node for " .. app_name)
         return nil, nil
     end
+    
+    -- Then wrap it with si-node SessionItem
+    local si_node = SessionItem("si-node")
+
+    if not si_node:configure {
+        ["item.node"] = node,  -- Pass the actual Node object
+    } then
+        Log.warning(si_node, "failed to configure si-node")
+        return nil, nil
+    end
+
+    si_node:register()
+    
+    local node_info = {
+        node = node,
+        si_node = si_node,
+        app_name = app_name,
+        node_name = unique_name,
+        stream = stream
+    }
+    app_nodes[stream_id] = node_info
+
+    node:activate(Feature.SessionItem.ACTIVE)
+    
+    return si_node, unique_name
 end
 
 app_om:connect("object-added", function(om, stream)
@@ -55,7 +60,7 @@ app_om:connect("object-added", function(om, stream)
     local app_name = properties["application.name"]
     local stream_id = stream.id
     
-    Log:info("New audio stream detected: " .. tostring(app_name) .. " (ID: " .. stream_id .. ")")
+    Log:warning("New audio stream detected: " .. tostring(app_name) .. " (ID: " .. stream_id .. ")")
     
     if app_name then
         local app_sink, node_name = createAppSink(app_name, stream_id, stream)
@@ -67,28 +72,35 @@ end)
 app_om:connect("object-removed", function(om, stream)
     local stream_id = stream.id
     local app_info = app_nodes[stream_id]
-    Log:info("Test: " .. app_info.app_name .. " (ID: " .. stream_id .. ")")
     
     if app_info then
-        Log:info("Stream disconnected: " .. app_info.app_name .. " (ID: " .. stream_id .. ")")
+        Log:warning("Test: " .. app_info.app_name .. " (ID: " .. stream_id .. ")")
+        Log:warning("Stream disconnected: " .. app_info.app_name .. " (ID: " .. stream_id .. ")")
         
         -- Clean up input link (stream -> app sink)
         if app_info.input_link then
-            Log:info("Removing input link for " .. app_info.node_name)
+            Log:warning("Removing input link for " .. app_info.node_name)
             app_info.input_link:request_destroy()
             app_info.input_link = nil
         end
         
         -- Clean up output link (app sink -> default)
         if app_info.output_link then
-            Log:info("Removing output link for " .. app_info.node_name)
+            Log:warning("Removing output link for " .. app_info.node_name)
             app_info.output_link:request_destroy()
             app_info.output_link = nil
         end
         
         -- Destroy the associated virtual sink
+        if app_info.si_node then
+            Log:warning("Destroying SessionItem: " .. app_info.node_name)
+            app_info.si_node:deactivate(Feature.SessionItem.ACTIVE)
+            app_info.si_node = nil
+        end
+        
+        -- Destroy the node
         if app_info.node then
-            Log:info("Destroying virtual sink: " .. app_info.node_name)
+            Log:warning("Destroying node: " .. app_info.node_name)
             app_info.node:request_destroy()
             app_info.node = nil
         end
