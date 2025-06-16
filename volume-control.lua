@@ -2,16 +2,16 @@
 local app_nodes = {}
 local default_node_id = 0
 
-app_om = ObjectManager {
+source_om = ObjectManager {
     Interest {
         type = "node",
         Constraint {"media.class", "=", "Stream/Output/Audio"}
     }
 }
 
-function createAppSink(app_name)
-    local unique_name = "App-Sink-" .. app_name:gsub("[^%w]", "-")
-    local description = "Volume Control for " .. app_name
+function createAppSink(source_name)
+    local unique_name = "App-Sink-" .. source_name:gsub("[^%w]", "-")
+    local description = "Volume Control for " .. source_name
     
     local node = Node("adapter", {
         ["factory.name"] = "support.null-audio-sink",
@@ -24,7 +24,7 @@ function createAppSink(app_name)
     })
     
     if not node then
-        Log:warning("Failed to create node for " .. app_name)
+        Log:warning("Failed to create node for " .. source_name)
         return
     end
     
@@ -33,7 +33,7 @@ function createAppSink(app_name)
     if not si_node:configure({
         ["item.node"] = node,
     }) then
-        Log:warning("Failed to configure si-node for " .. app_name)
+        Log:warning("Failed to configure si-node for " .. source_name)
         return
     end
 
@@ -42,51 +42,44 @@ function createAppSink(app_name)
     local node_info = {
         node = node,
         si_node = si_node,
-        app_name = app_name,
+        source_name = source_name,
         node_name = unique_name,
         connection_count = 1,
     }
 
-    app_nodes[app_name] = node_info
+    app_nodes[source_name] = node_info
 
     si_node:activate(Feature.SessionItem.ACTIVE)
 end
 
-app_om:connect("object-added", function(om, node)
+source_om:connect("object-added", function(om, node)
     local properties = node.properties
-    local app_name = properties["application.name"]
-    local stream_id = node.id
-    
-    Log:warning("New audio stream detected: " .. tostring(app_name) .. " (ID: " .. stream_id .. ")")
-    
-    if not app_nodes[app_name] then
-        createAppSink(app_name)
+    local source_name = properties["application.name"]
+
+    if not app_nodes[source_name] then
+        createAppSink(source_name)
     else
-        Log:warning("Volume control sink already exists")
-        app_nodes[app_name].connection_count = app_nodes[app_name].connection_count + 1
-        Log:warning("Connection count for " .. app_name .. " : " .. app_nodes[app_name].connection_count)
+        app_nodes[source_name].connection_count = app_nodes[source_name].connection_count + 1
     end
 end)
 
-app_om:connect("object-removed", function(om, node)
-    local app_name = node.properties["application.name"]
-    local node_info = app_nodes[app_name]
+source_om:connect("object-removed", function(om, node)
+    local source_name = node.properties["application.name"]
+    local node_info = app_nodes[source_name]
 
-    app_nodes[app_name].connection_count = app_nodes[app_name].connection_count - 1
-    Log:warning("Connection count for " .. app_name .. " : " .. app_nodes[app_name].connection_count)
+    app_nodes[source_name].connection_count = app_nodes[source_name].connection_count - 1
 
     if node_info.connection_count <= 0 then
         if node_info.si_node then
-            Log:warning("Destroying SessionItem: " .. node_info.node_name)
             node_info.si_node:deactivate(Feature.SessionItem.ACTIVE)
-            app_nodes[node.id] = nil
         end
 
         if node_info.node then
-            Log:warning("Destroying node: " .. node_info.node_name)
             node_info.node:request_destroy()
         end
+
+        app_nodes[source_name] = nil
     end
 end)
 
-app_om:activate()
+source_om:activate()
