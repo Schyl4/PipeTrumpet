@@ -1,9 +1,4 @@
--- for tracking
-local apps = {}
-local default_node_id = 0
-local links = {}
-
-default_port_in = nil
+local mixers = {}
 
 -- thanks to bennetthardwick for this awesome auto-connect-ports.lua script that helped me a lot
 function linkPort(out_port, in_port, source_name)
@@ -19,153 +14,128 @@ function linkPort(out_port, in_port, source_name)
         ["node.description"] = "Link for " .. source_name
     })
 
-    link:activate(1, function(obj, error)
-        if error then
-            Log:warning("Failed to activate link '" .. source_name .. "': " .. tostring(error))
-        end
-    end)
-    return link
-end
-
-function linkPorts(source_name)
-    local app_data = apps[source_name]
-
-    local source_port_out_om = ObjectManager {
-        Interest {
-            type = "port",
-            Constraint { "object.path", "matches", source_name .. ":*" },
-            Constraint { "port.direction", "=", "out" }
-        }
-    }
-
-    local sink_port_in_om = ObjectManager {
-        Interest {
-            type = "port",
-            Constraint { "object.path", "matches", "App-Sink-" .. source_name .. ":*" },
-            Constraint { "port.direction", "=", "in" }
-        }
-    }
-
-    local sink_port_out_om = ObjectManager {
-        Interest {
-            type = "port",
-            Constraint { "object.path", "matches", "App-Sink-" .. source_name .. ":*" },
-            Constraint { "port.direction", "=", "out" }
-        }
-    }
-
-    function tryCreateLinks()
-        for output in source_port_out_om:iterate {Constraint { "audio.channel", "equals", "FL"}} do
-            for input in sink_port_in_om:iterate {Constraint { "audio.channel", "equals", "FL"}} do
-                local link = linkPort(output, input, source_name)
-
-                if link then
-                    table.insert(links, link)
-                end
-            end
-        end
-
-        for output in source_port_out_om:iterate {Constraint { "audio.channel", "equals", "FR"}} do
-            for input in sink_port_in_om:iterate {Constraint { "audio.channel", "equals", "FR"}} do
-                local link = linkPort(output, input, source_name)
-
-                if link then
-                    table.insert(links, link)
-                end
-            end
-        end
-
-    end
-
-    source_port_out_om:connect("object-added", tryCreateLinks)
-    sink_port_in_om:connect("object-added", tryCreateLinks)
-    sink_port_out_om:connect("object-added", tryCreateLinks)
-
-    source_port_out_om:activate()
-    sink_port_in_om:activate()
-    sink_port_out_om:activate()
+    link:activate(1)
 end
 
 source_om = ObjectManager {
     Interest {
         type = "node",
-        Constraint {"media.class", "=", "Stream/Output/Audio"}
+        Constraint {"media.class", "equals", "Stream/Output/Audio"}
     }
 }
 
-function createAppSink(source_name)
-    local unique_name = "App-Sink-" .. source_name:gsub("[^%w]", "-")
+source_om:connect("object-added", function(_, source)
+    Log:warning("source called")
+
+    local source_name = source.properties["application.name"]
+    local unique_name = "AudioMixer-" .. source_name:gsub("[^%w]", "-")
     local description = "Volume Control for " .. source_name
 
-    local node = Node("adapter", {
-        ["factory.name"] = "support.null-audio-sink",
-        ["node.name"] = unique_name,
-        ["node.description"] = description,
-        ["media.class"] = "Audio/Sink",
-        ["audio.channels"] = 2,
-        ["audio.position"] = "FL,FR",
-        ["node.virtual"] = false,
-    })
-    
-    if not node then
-        Log:warning("Failed to create node for " .. source_name)
-        return
-    end
-    
-    local si_node = SessionItem("si-node")
+    if not mixers[source_name] then
+        node = Node("adapter", {
+            ["factory.name"] = "support.null-audio-sink",
+            ["node.name"] = unique_name,
+            ["node.description"] = description,
+            ["media.class"] = "Audio/Sink",
+            ["audio.channels"] = 2,
+            ["audio.position"] = "FL,FR",
+            ["node.virtual"] = true,
+        })
 
-    if not si_node:configure({
-        ["item.node"] = node,
-    }) then
-        Log:warning("Failed to configure si-node for " .. source_name)
-        return
+        si_node = SessionItem("si-node")
+
+        if not si_node:configure({
+            ["item.node"] = node,
+        }) then
+            Log:warning("Failed to configure si-node for " .. source_name)
+        end
+
+        si_node:register()
+
+        local node_info = {
+            node = node,
+            si_node = si_node,
+            source_name = source_name,
+            node_name = "AudioMixer-" .. unique_name
+        }
+
+        mixers[source_name] = node_info
+
+        si_node:activate(Features.ALL)
     end
 
-    si_node:register()
-    
-    local app_data = {
-        node = node,
-        si_node = si_node,
-        source_name = source_name,
-        node_name = unique_name,
-        connection_count = 1,
+    mixer_om = ObjectManager {
+        Interest {
+            type = "node",
+            Constraint {"media.class", "equals", "Audio/Sink"},
+            Constraint {"node.name", "equals", "AudioMixer-" .. source.properties["node.name"]}
+        }
     }
 
-    apps[source_name] = app_data
+    mixer_om:connect("object-added", function(_, mixer)
+        Log:warning("mixer called")
 
-    si_node:activate(Feature.SessionItem.ACTIVE)
-end
+        link_om = ObjectManager {
+            Interest {
+                type = "link",
+                Constraint {"link.output.node", "equals", tostring(source["bound-id"])},
+                Constraint {"link.input.node", "not-equals", tostring(mixer["bound-id"])}
+            }
+        }
 
-source_om:connect("object-added", function(om, stream)
-    local properties = stream.properties
-    local source_name = properties["application.name"]
+        link_om:connect("object-added", function(_, link)
+            Log:warning("link called")
+            
+            -- get the output sink of the source
+            sink_om = ObjectManager {
+                Interest {
+                    type = "node",
+                    Constraint {"object.id", "equals", tostring(link.properties["link.input.node"])},
+                }
+            }
 
-    if not apps[source_name] then
-        createAppSink(source_name)
-    else
-        apps[source_name].connection_count = apps[source_name].connection_count + 1
-    end
+            sink_om:connect("object-added", function(_, sink)
+                Log:warning("sink called: ")
+                -- now we have access to the source, mixer, old links and the output sink
+                -- let the rerouting begin!!
 
-    linkPorts(source_name)
+                for source_out in source:iterate_ports { Constraint { "port.direction", "equals", "out"}, Constraint { "audio.channel", "equals", "FL"} } do
+                    for mixer_in in mixer:iterate_ports { Constraint {"port.direction", "equals", "in"}, Constraint { "audio.channel", "equals", "FL"} } do
+                        linkPort(source_out, mixer_in, source_name)
+                    end
+                end
+
+                for source_out in source:iterate_ports { Constraint { "port.direction", "equals", "out"}, Constraint { "audio.channel", "equals", "FR"} } do
+                    for mixer_in in mixer:iterate_ports { Constraint {"port.direction", "equals", "in"}, Constraint { "audio.channel", "equals", "FR"} } do
+                        linkPort(source_out, mixer_in, source_name)
+                    end
+                end
+
+                for mixer_out in mixer:iterate_ports { Constraint { "port.direction", "equals", "out"}, Constraint { "audio.channel", "equals", "FL"} } do
+                    for sink_in in sink:iterate_ports { Constraint {"port.direction", "equals", "in"}, Constraint { "audio.channel", "equals", "FL"} } do
+                        linkPort(mixer_out, sink_in, source_name)
+                    end
+                end
+
+                for mixer_out in mixer:iterate_ports { Constraint { "port.direction", "equals", "out"}, Constraint { "audio.channel", "equals", "FR"} } do
+                    for sink_in in sink:iterate_ports { Constraint {"port.direction", "equals", "in"}, Constraint { "audio.channel", "equals", "FR"} } do
+                        linkPort(mixer_out, sink_in, source_name)
+                    end
+                end
+            end)
+
+
+            -- destroy the link that connects the output node with the sink
+            link:request_destroy()
+
+            sink_om:activate()
+        end)
+
+        link_om:activate()
+    end)
+
+    mixer_om:activate()
 end)
 
-source_om:connect("object-removed", function(om, stream)
-    local source_name = stream.properties["application.name"]
-    local node_info = apps[source_name]
-
-    apps[source_name].connection_count = apps[source_name].connection_count - 1
-
-    if node_info.connection_count <= 0 then
-        if node_info.si_node then
-            node_info.si_node:deactivate(Feature.SessionItem.ACTIVE)
-        end
-
-        if node_info.node then
-            node_info.node:request_destroy()
-        end
-
-        apps[source_name] = nil
-    end
-end)
 
 source_om:activate()
