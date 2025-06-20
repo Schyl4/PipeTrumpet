@@ -15,6 +15,8 @@ function linkPort(out_port, in_port, source_name)
     })
 
     link:activate(1)
+
+    return link
 end
 
 source_om = ObjectManager {
@@ -25,7 +27,7 @@ source_om = ObjectManager {
 }
 
 source_om:connect("object-added", function(_, source)
-    Log:warning("source called")
+    Log:warning("source called" .. source.properties["node.name"])
 
     local source_name = source.properties["application.name"]
     local unique_name = "AudioMixer-" .. source_name:gsub("[^%w]", "-")
@@ -38,8 +40,9 @@ source_om:connect("object-added", function(_, source)
             ["node.description"] = description,
             ["media.class"] = "Audio/Sink",
             ["audio.channels"] = 2,
-            ["audio.position"] = "FL,FR",
-            ["node.virtual"] = true,
+            ["audio.position"] = "[ FL FR ]",
+            ["node.virtual"] = "true",
+            ["device.monitor"]   = "true"
         })
 
         si_node = SessionItem("si-node")
@@ -54,9 +57,9 @@ source_om:connect("object-added", function(_, source)
 
         local node_info = {
             node = node,
-            si_node = si_node,
             source_name = source_name,
-            node_name = "AudioMixer-" .. unique_name
+            node_name = "AudioMixer-" .. unique_name,
+            links = {}
         }
 
         mixers[source_name] = node_info
@@ -99,31 +102,39 @@ source_om:connect("object-added", function(_, source)
                 -- now we have access to the source, mixer, old links and the output sink
                 -- let the rerouting begin!!
 
+                -- delete the old links
+                for _, l in pairs(mixers[source_name].links) do
+                    l:request_destroy()
+                end
+
                 for source_out in source:iterate_ports { Constraint { "port.direction", "equals", "out"}, Constraint { "audio.channel", "equals", "FL"} } do
                     for mixer_in in mixer:iterate_ports { Constraint {"port.direction", "equals", "in"}, Constraint { "audio.channel", "equals", "FL"} } do
-                        linkPort(source_out, mixer_in, source_name)
+                        local l = linkPort(source_out, mixer_in, source_name)
+                        table.insert(mixers[source_name].links, l)
                     end
                 end
 
                 for source_out in source:iterate_ports { Constraint { "port.direction", "equals", "out"}, Constraint { "audio.channel", "equals", "FR"} } do
                     for mixer_in in mixer:iterate_ports { Constraint {"port.direction", "equals", "in"}, Constraint { "audio.channel", "equals", "FR"} } do
-                        linkPort(source_out, mixer_in, source_name)
+                        local l = linkPort(source_out, mixer_in, source_name)
+                        table.insert(mixers[source_name].links, l)
                     end
                 end
 
                 for mixer_out in mixer:iterate_ports { Constraint { "port.direction", "equals", "out"}, Constraint { "audio.channel", "equals", "FL"} } do
                     for sink_in in sink:iterate_ports { Constraint {"port.direction", "equals", "in"}, Constraint { "audio.channel", "equals", "FL"} } do
-                        linkPort(mixer_out, sink_in, source_name)
+                        local l = linkPort(mixer_out, sink_in, source_name)
+                        table.insert(mixers[source_name].links, l)
                     end
                 end
 
                 for mixer_out in mixer:iterate_ports { Constraint { "port.direction", "equals", "out"}, Constraint { "audio.channel", "equals", "FR"} } do
                     for sink_in in sink:iterate_ports { Constraint {"port.direction", "equals", "in"}, Constraint { "audio.channel", "equals", "FR"} } do
-                        linkPort(mixer_out, sink_in, source_name)
+                        local l = linkPort(mixer_out, sink_in, source_name)
+                        table.insert(mixers[source_name].links, l)
                     end
                 end
             end)
-
 
             -- destroy the link that connects the output node with the sink
             link:request_destroy()
