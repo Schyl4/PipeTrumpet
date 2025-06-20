@@ -42,7 +42,10 @@ source_om:connect("object-added", function(_, source)
             ["audio.channels"] = 2,
             ["audio.position"] = "[ FL FR ]",
             ["node.virtual"] = "true",
-            ["device.monitor"]   = "true"
+            ["device.monitor"]   = "true",
+            
+            --this enables the volume control for the sink
+            ["monitor.channel-volumes"] = "true"
         })
 
         si_node = SessionItem("si-node")
