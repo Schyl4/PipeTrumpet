@@ -1,5 +1,7 @@
 local mixers = {}
 
+local whitelist = {}
+
 -- thanks to bennetthardwick for this awesome auto-connect-ports.lua script that helped me a lot
 function linkPort(out_port, in_port, source_name)
     local link = Link("link-factory", {
@@ -19,21 +21,12 @@ function linkPort(out_port, in_port, source_name)
     return link
 end
 
-source_om = ObjectManager {
-    Interest {
-        type = "node",
-        Constraint {"media.class", "equals", "Stream/Output/Audio"}
-    }
-}
-
-source_om:connect("object-added", function(_, source)
-    Log:warning("source called" .. source.properties["node.name"])
-
-    local source_name = source.properties["application.name"]
-    local unique_name = "AudioMixer-" .. source_name:gsub("[^%w]", "-")
-    local description = "Volume Control for " .. source_name
-
+-- create the nodes before they are needed to avoid timing issues
+for _, source_name in pairs(whitelist) do
     if not mixers[source_name] then
+        local unique_name = "AudioMixer-" .. source_name:gsub("[^%w]", "-")
+        local description = "Volume Control for " .. source_name
+
         node = Node("adapter", {
             ["factory.name"] = "support.null-audio-sink",
             ["node.name"] = unique_name,
@@ -69,6 +62,20 @@ source_om:connect("object-added", function(_, source)
 
         si_node:activate(Features.ALL)
     end
+end
+
+source_om = ObjectManager {
+    Interest {
+        type = "node",
+        Constraint {"media.class", "equals", "Stream/Output/Audio"},
+        Constraint {"node.name", "in-list", table.unpack(whitelist)}
+    }
+}
+
+source_om:connect("object-added", function(_, source)
+    Log:warning("source called" .. source.properties["node.name"])
+
+    local source_name = source.properties["application.name"]
 
     mixer_om = ObjectManager {
         Interest {
