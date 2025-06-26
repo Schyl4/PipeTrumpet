@@ -73,8 +73,6 @@ source_om = ObjectManager {
 }
 
 source_om:connect("object-added", function(_, source)
-    Log:warning("source called" .. source.properties["node.name"])
-
     local source_name = source.properties["application.name"]
 
     mixer_om = ObjectManager {
@@ -97,8 +95,6 @@ source_om:connect("object-added", function(_, source)
         }
 
         link_om:connect("object-added", function(_, link)
-            Log:warning("link called")
-            
             -- get the output sink of the source
             sink_om = ObjectManager {
                 Interest {
@@ -108,7 +104,6 @@ source_om:connect("object-added", function(_, source)
             }
 
             sink_om:connect("object-added", function(_, sink)
-                Log:warning("sink called: ")
                 -- now we have access to the source, mixer, old links and the output sink
                 -- let the rerouting begin!!
 
