@@ -84,8 +84,6 @@ source_om:connect("object-added", function(_, source)
     }
 
     mixer_om:connect("object-added", function(_, mixer)
-        Log:warning("mixer called")
-
         link_om = ObjectManager {
             Interest {
                 type = "link",
