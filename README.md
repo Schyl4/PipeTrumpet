@@ -7,3 +7,5 @@
 **Spotify:**
 * **Audio routing:** works
 * **Changing output device:** requires app restart
+
+![example picture](example.png)
