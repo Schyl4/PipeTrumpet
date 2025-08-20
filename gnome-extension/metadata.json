@@ -1,0 +1,8 @@
+{
+  "name": "PipeTrumpet",
+  "description": "Per-App volume control",
+  "uuid": "pipetrumpet@test.com",
+  "shell-version": [
+    "48"
+  ]
+}

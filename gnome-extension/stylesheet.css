@@ -1,0 +1,47 @@
+/* Header (required but hidden) */
+.hidden-header {
+    height: 0;
+    padding: 0;
+    margin: 0;
+    spacing: 0;
+    border: none;
+    opacity: 0;
+}
+
+/* App name styling */
+.sink-name-item {
+    padding: 4px 12px 2px;
+    margin: 0;
+}
+
+.sink-name-label {
+    font-weight: normal;
+    color: white;
+    font-size: 13px;
+}
+
+/* Volume percentage display */
+.volume-percentage {
+    color: rgba(255, 255, 255, 0.85);
+    font-size: 13px;
+    min-width: 40px;
+    text-align: right;
+}
+
+/* Slider item */
+.minimal-slider-item {
+    padding: 0 12px 0;
+    margin: 0;
+}
+
+/* Standard slider styling */
+.slider {
+    height: 20px;
+    min-width: 200px;
+}
+
+/* No sinks message */
+.no-sinks-message {
+    font-style: italic;
+    color: rgba(255, 255, 255, 0.7);
+}
